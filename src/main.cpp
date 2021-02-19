@@ -20,7 +20,7 @@ void initRadio() {
 }
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
     delay(200);
     Serial.println("\n---\nStarting...\n");
 
@@ -55,7 +55,7 @@ void loop() {
 
         if (!radio.write(concatenated_string, sizeof(concatenated_string))) {
             Serial.println("Could not sent data!");
-        }
+        } else Serial.println("ACK");
 
         delay(100);
     }
