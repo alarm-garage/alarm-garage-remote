@@ -96,7 +96,7 @@ void sendSignal() {
 
     _protocol_RemoteSignalPayload payload = protocol_RemoteSignalPayload_init_zero;
     payload.code = ++clientState.lastCode;
-    strcpy(reinterpret_cast<char *>(payload.random.bytes), "abcdefghij");
+    strcpy(reinterpret_cast<char *>(payload.random.bytes), "abcdefghij"); // TODO make truly random
     payload.random.size = 10;
 
     if (!encrypt_signal(&signal, clientState.authdata, payload)) {
