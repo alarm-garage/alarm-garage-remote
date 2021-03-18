@@ -24,6 +24,21 @@ typedef struct _protocol_RemoteSignalPayload {
     protocol_RemoteSignalPayload_random_t random;
 } protocol_RemoteSignalPayload;
 
+typedef PB_BYTES_ARRAY_T(14) protocol_RemoteSignalResponse_payload_t;
+typedef PB_BYTES_ARRAY_T(8) protocol_RemoteSignalResponse_auth_tag_t;
+typedef struct _protocol_RemoteSignalResponse {
+    char client_id[5];
+    protocol_RemoteSignalResponse_payload_t payload;
+    protocol_RemoteSignalResponse_auth_tag_t auth_tag;
+} protocol_RemoteSignalResponse;
+
+typedef PB_BYTES_ARRAY_T(8) protocol_RemoteSignalResponsePayload_random_t;
+typedef struct _protocol_RemoteSignalResponsePayload {
+    uint32_t code;
+    bool success;
+    protocol_RemoteSignalResponsePayload_random_t random;
+} protocol_RemoteSignalResponsePayload;
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,8 +47,12 @@ extern "C" {
 /* Initializer values for message structs */
 #define protocol_RemoteSignal_init_default       {"", {0, {0}}, {0, {0}}}
 #define protocol_RemoteSignalPayload_init_default {0, {0, {0}}}
+#define protocol_RemoteSignalResponse_init_default {"", {0, {0}}, {0, {0}}}
+#define protocol_RemoteSignalResponsePayload_init_default {0, 0, {0, {0}}}
 #define protocol_RemoteSignal_init_zero          {"", {0, {0}}, {0, {0}}}
 #define protocol_RemoteSignalPayload_init_zero   {0, {0, {0}}}
+#define protocol_RemoteSignalResponse_init_zero  {"", {0, {0}}, {0, {0}}}
+#define protocol_RemoteSignalResponsePayload_init_zero {0, 0, {0, {0}}}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define protocol_RemoteSignal_client_id_tag      1
@@ -41,6 +60,12 @@ extern "C" {
 #define protocol_RemoteSignal_auth_tag_tag       3
 #define protocol_RemoteSignalPayload_code_tag    1
 #define protocol_RemoteSignalPayload_random_tag  2
+#define protocol_RemoteSignalResponse_client_id_tag 1
+#define protocol_RemoteSignalResponse_payload_tag 2
+#define protocol_RemoteSignalResponse_auth_tag_tag 3
+#define protocol_RemoteSignalResponsePayload_code_tag 1
+#define protocol_RemoteSignalResponsePayload_success_tag 2
+#define protocol_RemoteSignalResponsePayload_random_tag 3
 
 /* Struct field encoding specification for nanopb */
 #define protocol_RemoteSignal_FIELDLIST(X, a) \
@@ -56,16 +81,36 @@ X(a, STATIC,   REQUIRED, BYTES,    random,            2)
 #define protocol_RemoteSignalPayload_CALLBACK NULL
 #define protocol_RemoteSignalPayload_DEFAULT NULL
 
+#define protocol_RemoteSignalResponse_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, STRING,   client_id,         1) \
+X(a, STATIC,   REQUIRED, BYTES,    payload,           2) \
+X(a, STATIC,   REQUIRED, BYTES,    auth_tag,          3)
+#define protocol_RemoteSignalResponse_CALLBACK NULL
+#define protocol_RemoteSignalResponse_DEFAULT NULL
+
+#define protocol_RemoteSignalResponsePayload_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT32,   code,              1) \
+X(a, STATIC,   REQUIRED, BOOL,     success,           2) \
+X(a, STATIC,   REQUIRED, BYTES,    random,            3)
+#define protocol_RemoteSignalResponsePayload_CALLBACK NULL
+#define protocol_RemoteSignalResponsePayload_DEFAULT NULL
+
 extern const pb_msgdesc_t protocol_RemoteSignal_msg;
 extern const pb_msgdesc_t protocol_RemoteSignalPayload_msg;
+extern const pb_msgdesc_t protocol_RemoteSignalResponse_msg;
+extern const pb_msgdesc_t protocol_RemoteSignalResponsePayload_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define protocol_RemoteSignal_fields &protocol_RemoteSignal_msg
 #define protocol_RemoteSignalPayload_fields &protocol_RemoteSignalPayload_msg
+#define protocol_RemoteSignalResponse_fields &protocol_RemoteSignalResponse_msg
+#define protocol_RemoteSignalResponsePayload_fields &protocol_RemoteSignalResponsePayload_msg
 
 /* Maximum encoded size of messages (where known) */
 #define protocol_RemoteSignal_size               32
 #define protocol_RemoteSignalPayload_size        18
+#define protocol_RemoteSignalResponse_size       32
+#define protocol_RemoteSignalResponsePayload_size 18
 
 #ifdef __cplusplus
 } /* extern "C" */

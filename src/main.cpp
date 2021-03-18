@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <LowPower.h>
 #include <EEPROM.h>
 
 #include <RF24.h>
@@ -11,17 +10,19 @@
 
 #include <proto/pb_encode.h>
 #include <proto/alarm.pb.h>
+#include <proto/pb_decode.h>
 
 RF24 radio(AG_PIN_CE, AG_PIN_CSN);
 Ascon128 cipher;
 
-const byte address[6] = "1tran";
+const byte addressSend[6] = "1tran";
+const byte addressReceive[6] = "2tran";
 const byte iv[AG_SIGNAL_IV_SIZE] = AG_SIGNAL_IV;
 
 typedef struct ClientState {
     char clientId[5];
     byte key[AG_SIGNAL_KEY_SIZE];
-    byte authdata[AG_SIGNAL_AUTH_SIZE];
+    byte authData[AG_SIGNAL_AUTH_SIZE];
     uint32_t lastCode;
 } ClientState;
 
@@ -29,6 +30,12 @@ ClientState clientState;
 
 void wakeUp() {
     // no-op
+}
+
+void fillWithRandom(byte *data, int len) {
+    for (int i = 0; i < len; i++) {
+        data[i] = random(1, 255);
+    }
 }
 
 bool initRadio() {
@@ -46,16 +53,17 @@ bool initRadio() {
     radio.setRetries(15, 15);
     radio.setPALevel(RF24_PA_MAX);
     radio.setChannel(109);
-    radio.openWritingPipe(address);
+    radio.openWritingPipe(addressSend);
     radio.stopListening();
+    radio.openReadingPipe(1, addressReceive);
     radio.printDetails();
 
     return true;
 }
 
-bool encrypt_signal(_protocol_RemoteSignal *output,
-                    const byte authData[AG_SIGNAL_AUTH_SIZE],
-                    const _protocol_RemoteSignalPayload payload) {
+bool encryptSignalPayload(_protocol_RemoteSignal *output,
+                          const byte *authData,
+                          const _protocol_RemoteSignalPayload payload) {
     cipher.clear();
 
     uint8_t pb_buffer[16];
@@ -72,11 +80,9 @@ bool encrypt_signal(_protocol_RemoteSignal *output,
     Serial.print(" bytes\n");
 
     if (!cipher.setKey(clientState.key, AG_SIGNAL_KEY_SIZE)) {
-        Serial.print("setKey ");
         return false;
     }
     if (!cipher.setIV(iv, AG_SIGNAL_IV_SIZE)) {
-        Serial.print("setIV ");
         return false;
     }
 
@@ -89,19 +95,80 @@ bool encrypt_signal(_protocol_RemoteSignal *output,
     return true;
 }
 
-void sendSignal() {
+bool decryptSignalResponse(byte *buff, const _protocol_RemoteSignalResponse *response) {
+    cipher.clear();
+
+    if (!cipher.setKey(clientState.key, AG_SIGNAL_KEY_SIZE)) {
+        return false;
+    }
+    if (!cipher.setIV(iv, AG_SIGNAL_IV_SIZE)) {
+        return false;
+    }
+
+    cipher.addAuthData(clientState.authData, AG_SIGNAL_AUTH_SIZE);
+    cipher.decrypt(buff, response->payload.bytes, AG_SIGNAL_DATA_SIZE);
+
+    return cipher.checkTag(response->auth_tag.bytes, AG_SIGNAL_AUTH_TAG_SIZE);
+}
+
+boolean waitForResponse(uint32_t expectedCode) {
+    unsigned long start = millis();
+
+    while (!radio.available() && millis() < start + AG_SIGNAL_RESPONSE_TIMEOUT) {}
+
+    if (radio.available()) {
+        byte buff[AG_RADIO_PAYLOAD_SIZE * 2];
+        radio.read(buff, AG_RADIO_PAYLOAD_SIZE);
+
+        pb_istream_t stream = pb_istream_from_buffer(buff, AG_RADIO_PAYLOAD_SIZE);
+
+        _protocol_RemoteSignalResponse signalResponse = protocol_RemoteSignalResponse_init_zero;
+
+        if (!pb_decode(&stream, protocol_RemoteSignalResponse_fields, &signalResponse)) {
+            printf("Decoding signal response failed: %s\n", PB_GET_ERROR(&stream));
+            return false;
+        }
+
+        if (memcmp(clientState.clientId, signalResponse.client_id, 5) != 0) {
+            Serial.println("Response has different ClientId than ours!");
+            return false;
+        }
+
+        if (!decryptSignalResponse(buff, &signalResponse)) {
+            Serial.println("Could not decrypt the response!");
+            return false;
+        }
+
+        // TODO support variable length of encoding
+        pb_istream_t stream2 = pb_istream_from_buffer(buff, AG_SIGNAL_DATA_SIZE);
+
+        _protocol_RemoteSignalResponsePayload signalResponsePayload = protocol_RemoteSignalResponsePayload_init_zero;
+
+        if (!pb_decode(&stream2, protocol_RemoteSignalResponsePayload_fields, &signalResponsePayload)) {
+            printf("Decoding signal response payload failed: %s\n", PB_GET_ERROR(&stream2));
+            return false;
+        }
+
+        return signalResponsePayload.code == expectedCode && signalResponsePayload.success;
+    } else {
+        Serial.println("Response wasn't received in a time!");
+        return false;
+    }
+}
+
+bool sendSignal() {
     _protocol_RemoteSignal signal = protocol_RemoteSignal_init_zero;
 
     strcpy(signal.client_id, clientState.clientId);
 
     _protocol_RemoteSignalPayload payload = protocol_RemoteSignalPayload_init_zero;
     payload.code = ++clientState.lastCode;
-    strcpy(reinterpret_cast<char *>(payload.random.bytes), "abcdefghij"); // TODO make truly random
+    fillWithRandom(payload.random.bytes, 10);
     payload.random.size = 10;
 
-    if (!encrypt_signal(&signal, clientState.authdata, payload)) {
+    if (!encryptSignalPayload(&signal, clientState.authData, payload)) {
         Serial.println("Could not encrypt signal payload!");
-        return;
+        return false;
     }
 
     printf("Sending code %d\n", clientState.lastCode);
@@ -111,7 +178,7 @@ void sendSignal() {
 
     if (!pb_encode(&stream, protocol_RemoteSignal_fields, &signal)) {
         Serial.println("Could not encode the signal!");
-        return;
+        return false;
     }
 
     size_t bytes = stream.bytes_written;
@@ -120,7 +187,12 @@ void sendSignal() {
 
     if (!radio.write(pb_buffer, bytes)) {
         Serial.println("Could not sent data!");
-    } else Serial.println("ACK");
+        return false;
+    } else {
+        radio.startListening(); // this won't be turned back... it will be powered off instead ;-)
+
+        return waitForResponse(payload.code);
+    }
 }
 
 void setup() {
@@ -142,23 +214,19 @@ void setup() {
     }
 
     EEPROM.get(0, clientState);
+
+    if (sendSignal()) {
+        Serial.println("Everything allright!");
+    } else {
+        Serial.println("Some error has occurred!");
+    }
+
+    Serial.println("FINISH");
+
+    // TODO power off
 }
 
 void loop() {
-    // TODO make this much better!
-    while (digitalRead(AG_PIN_BUTT) == LOW); // prevent sending two events
-
-    // Allow wake up pin to trigger interrupt on low.
-    attachInterrupt(1, wakeUp, LOW);
-    // Enter power down state with ADC and BOD module disabled.
-    // Wake up when wake up pin is low.
-    LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
-    delay(50); // wait for the sleep
-
-    // Disable external pin interrupt on wake up pin.
-    detachInterrupt(1);
-
-    sendSignal();
-
-    delay(100);
+    // no-op
+    delay(1000);
 }

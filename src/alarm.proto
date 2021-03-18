@@ -14,3 +14,15 @@ message RemoteSignalPayload {
   required uint32 code = 1;
   required bytes random = 2 [(nanopb).max_size = 10];
 }
+
+message RemoteSignalResponse {
+  required string client_id = 1 [(nanopb).max_length = 4];
+  required bytes payload = 2 [(nanopb).max_size = 14];
+  required bytes auth_tag = 3 [(nanopb).max_size = 8];
+}
+
+message RemoteSignalResponsePayload {
+  required uint32 code = 1;
+  required bool success = 2;
+  required bytes random = 3 [(nanopb).max_size = 8];
+}
