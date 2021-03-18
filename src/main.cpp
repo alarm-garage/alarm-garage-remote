@@ -48,7 +48,6 @@ bool initRadio() {
 
     radio.setAutoAck(true);
     radio.enableDynamicPayloads();
-    radio.setPayloadSize(32);
     radio.setDataRate(RF24_250KBPS);
     radio.setRetries(15, 15);
     radio.setPALevel(RF24_PA_MAX);
@@ -66,18 +65,15 @@ bool encryptSignalPayload(_protocol_RemoteSignal *output,
                           const _protocol_RemoteSignalPayload payload) {
     cipher.clear();
 
-    uint8_t pb_buffer[16];
+    uint8_t pb_buffer[protocol_RemoteSignalPayload_size];
     pb_ostream_t stream = pb_ostream_from_buffer(pb_buffer, sizeof(pb_buffer));
 
     if (!pb_encode(&stream, protocol_RemoteSignalPayload_fields, &payload)) {
-        Serial.println("Could not encode the signal payload!");
+        printf("Could not encode the signal payload: %s\n", PB_GET_ERROR(&stream));
         return false;
     }
 
-    Serial.print("Signal payload encoded into ");
-    size_t bytes = stream.bytes_written;
-    Serial.print(bytes);
-    Serial.print(" bytes\n");
+    const size_t size = stream.bytes_written;
 
     if (!cipher.setKey(clientState.key, AG_SIGNAL_KEY_SIZE)) {
         return false;
@@ -87,8 +83,8 @@ bool encryptSignalPayload(_protocol_RemoteSignal *output,
     }
 
     cipher.addAuthData(authData, AG_SIGNAL_AUTH_SIZE);
-    cipher.encrypt(output->payload.bytes, pb_buffer, AG_SIGNAL_DATA_SIZE);
-    output->payload.size = AG_SIGNAL_DATA_SIZE;
+    cipher.encrypt(output->payload.bytes, pb_buffer, size);
+    output->payload.size = size;
     cipher.computeTag(output->auth_tag.bytes, AG_SIGNAL_AUTH_TAG_SIZE);
     output->auth_tag.size = AG_SIGNAL_AUTH_TAG_SIZE;
 
@@ -106,7 +102,7 @@ bool decryptSignalResponse(byte *buff, const _protocol_RemoteSignalResponse *res
     }
 
     cipher.addAuthData(clientState.authData, AG_SIGNAL_AUTH_SIZE);
-    cipher.decrypt(buff, response->payload.bytes, AG_SIGNAL_DATA_SIZE);
+    cipher.decrypt(buff, response->payload.bytes, response->payload.size);
 
     return cipher.checkTag(response->auth_tag.bytes, AG_SIGNAL_AUTH_TAG_SIZE);
 }
@@ -117,10 +113,12 @@ boolean waitForResponse(uint32_t expectedCode) {
     while (!radio.available() && millis() < start + AG_SIGNAL_RESPONSE_TIMEOUT) {}
 
     if (radio.available()) {
-        byte buff[AG_RADIO_PAYLOAD_SIZE * 2];
-        radio.read(buff, AG_RADIO_PAYLOAD_SIZE);
+        const uint8_t size = radio.getDynamicPayloadSize();
 
-        pb_istream_t stream = pb_istream_from_buffer(buff, AG_RADIO_PAYLOAD_SIZE);
+        byte buff[size];
+        radio.read(buff, size);
+
+        pb_istream_t stream = pb_istream_from_buffer(buff, size);
 
         _protocol_RemoteSignalResponse signalResponse = protocol_RemoteSignalResponse_init_zero;
 
@@ -139,8 +137,7 @@ boolean waitForResponse(uint32_t expectedCode) {
             return false;
         }
 
-        // TODO support variable length of encoding
-        pb_istream_t stream2 = pb_istream_from_buffer(buff, AG_SIGNAL_DATA_SIZE);
+        pb_istream_t stream2 = pb_istream_from_buffer(buff, signalResponse.payload.size); // size encrypted == size decrypted
 
         _protocol_RemoteSignalResponsePayload signalResponsePayload = protocol_RemoteSignalResponsePayload_init_zero;
 
@@ -163,29 +160,29 @@ bool sendSignal() {
 
     _protocol_RemoteSignalPayload payload = protocol_RemoteSignalPayload_init_zero;
     payload.code = ++clientState.lastCode;
-    fillWithRandom(payload.random.bytes, 10);
-    payload.random.size = 10;
+    fillWithRandom(payload.random.bytes, 6);
+    payload.random.size = 6;
 
     if (!encryptSignalPayload(&signal, clientState.authData, payload)) {
         Serial.println("Could not encrypt signal payload!");
         return false;
     }
 
-    printf("Sending code %d\n", clientState.lastCode);
+    printf("Sending code %lu\n", clientState.lastCode);
 
-    uint8_t pb_buffer[64];
+    uint8_t pb_buffer[AG_RADIO_MAX_PAYLOAD_SIZE];
     pb_ostream_t stream = pb_ostream_from_buffer(pb_buffer, sizeof(pb_buffer));
 
     if (!pb_encode(&stream, protocol_RemoteSignal_fields, &signal)) {
-        Serial.println("Could not encode the signal!");
+        printf("Could not encode the signal: %s\n", PB_GET_ERROR(&stream));
         return false;
     }
 
-    size_t bytes = stream.bytes_written;
+    const size_t size = stream.bytes_written;
 
     EEPROM.put(0, clientState);
 
-    if (!radio.write(pb_buffer, bytes)) {
+    if (!radio.write(pb_buffer, size)) {
         Serial.println("Could not sent data!");
         return false;
     } else {

@@ -18,7 +18,7 @@ typedef struct _protocol_RemoteSignal {
     protocol_RemoteSignal_auth_tag_t auth_tag;
 } protocol_RemoteSignal;
 
-typedef PB_BYTES_ARRAY_T(10) protocol_RemoteSignalPayload_random_t;
+typedef PB_BYTES_ARRAY_T(6) protocol_RemoteSignalPayload_random_t;
 typedef struct _protocol_RemoteSignalPayload {
     uint32_t code;
     protocol_RemoteSignalPayload_random_t random;
@@ -32,7 +32,7 @@ typedef struct _protocol_RemoteSignalResponse {
     protocol_RemoteSignalResponse_auth_tag_t auth_tag;
 } protocol_RemoteSignalResponse;
 
-typedef PB_BYTES_ARRAY_T(8) protocol_RemoteSignalResponsePayload_random_t;
+typedef PB_BYTES_ARRAY_T(4) protocol_RemoteSignalResponsePayload_random_t;
 typedef struct _protocol_RemoteSignalResponsePayload {
     uint32_t code;
     bool success;
@@ -108,9 +108,9 @@ extern const pb_msgdesc_t protocol_RemoteSignalResponsePayload_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define protocol_RemoteSignal_size               32
-#define protocol_RemoteSignalPayload_size        18
+#define protocol_RemoteSignalPayload_size        14
 #define protocol_RemoteSignalResponse_size       32
-#define protocol_RemoteSignalResponsePayload_size 18
+#define protocol_RemoteSignalResponsePayload_size 14
 
 #ifdef __cplusplus
 } /* extern "C" */
